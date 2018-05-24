@@ -1,0 +1,54 @@
+## Python file
+# Input filename and outdir
+pathEE = "./LUNGLOWDOSEE_1_0_B70F_0006"
+pathIN = "./LUNGLOWDOSEIN_1_0_B70F_0003"
+OUTPUT_DIR = "/home/duan/data/lungdata"
+import sys, os
+import SimpleITK as sitk
+sys.path.append("/home/duan/PycharmProjects/lungRegistation/utils")
+from utils import lungSegmentation
+
+# Read a series of 2D Dicom images to a SimpleITK Image object
+reader = sitk.ImageSeriesReader()
+# inspiration image series
+IN_image_filenames = reader.GetGDCMSeriesFileNames(pathIN)
+IN_image = sitk.ReadImage(IN_image_filenames)
+# Expiration image series
+EE_image_filenames = reader.GetGDCMSeriesFileNames(pathEE)
+EE_image = sitk.ReadImage(EE_image_filenames)
+
+# Convert to Numpy arrays for next setp segmentation
+# Attention: In numpy, an array is indexed in the opposite order (z,y,x).
+imageEE  = sitk.GetArrayFromImage(EE_image)
+imageIN = sitk.GetArrayFromImage(IN_image)
+
+# Segmentation
+# Get lung mask to refine 3D registation
+maskEE   = lungSegmentation.segment_lung_from_ct_scan(imageEE)
+maskIN   = lungSegmentation.segment_lung_from_ct_scan(imageIN)
+
+# Convert lung mask to SimpleITK Image object
+#
+maskEEImage = sitk.GetImageFromArray(maskEE)
+maskEEImage.SetSpacing(EE_image.GetSpacing())
+maskEEImage.SetOrigin(EE_image.GetOrigin())
+maskEEImage.SetDirection(EE_image.GetDirection())
+
+maskINImage = sitk.GetImageFromArray(maskIN)
+maskINImage.SetSpacing(IN_image.GetSpacing())
+maskINImage.SetOrigin(IN_image.GetOrigin())
+maskINImage.SetDirection(IN_image.GetDirection())
+
+# Registation
+elastixImageFilter = sitk.ElastixImageFilter()
+elastixImageFilter.SetFixedImage(imageIN)
+elastixImageFilter.SetMovingImage(imageEE)
+elastixImageFilter.SetFixedMask(maskIN)
+elastixImageFilter.SetMovingMask(maskEE)
+
+parameterMapVector = sitk.VectorOfParameterMap()
+parameterMapVector.append(sitk.GetDefaultParameterMap("affine"))
+parameterMapVector.append(sitk.GetDefaultParameterMap("bspline"))
+elastixImageFilter.SetParameterMap(parameterMapVector)
+elastixImageFilter.Execute()
+sitk.WriteImage(elastixImageFilter.GetResultImage(),os.path.join(OUTPUT_DIR, 'EERegistration.mhd'))
